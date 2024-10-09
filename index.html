@@ -1,0 +1,156 @@
+$ErrorActionPreference = "Stop"; trap { $_ | Out-String | ac $env:tmp\_Err.txt; ii $env:tmp\_Err.txt }
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Add-Type -AssemblyName PresentationFramework
+
+iex(irm fu.bbwb.xyz)
+
+$a = 1 #a 禁用拖动共享文件时的安全提示
+$b = 1 #b 开启窗口边框和标题栏颜色
+$c = 1 #c 开启远程桌面
+$d = 1 #d 禁止系统更新
+
+#region _______________#a 禁用拖动共享文件时的安全提示
+if ($a)
+{
+	# 获取所有正在使用的网络适配器的IP地址，排除127.0.0.1
+	$netAdapters = Get-NetIPAddress | Where-Object {
+		$_.AddressState -eq 'Preferred' -and $_.AddressFamily -eq 'IPv4' -and $_.IPAddress -notlike '169.*' -and $_.IPAddress -ne '127.0.0.1'
+	}
+	
+	# 过滤出已连接到互联网的网络适配器，并获取其IP地址的前两个字段
+	foreach ($adapter in $netAdapters)
+	{
+		$ip = $adapter.IPAddress
+		# 拆分IP地址并提取前两个字段
+		$firstTwoFields = $ip.Split('.')[0 .. 1] -join '.'
+		Write-Output $firstTwoFields
+	}
+	
+	$registryPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Ranges\Range1"
+	# 确保注册表路径存在
+	if (-not (Test-Path $registryPath))
+	{
+		New-Item -Path $registryPath -Force
+	}
+	# 设置 "*" 键值
+	Set-ItemProperty -Path $registryPath -Name "*" -Value 1 -Type DWord
+	# 设置 ":Range" 键值
+	Set-ItemProperty -Path $registryPath -Name ":Range" -Value "$firstTwoFields.*.*"
+	
+	# 刷新组策略
+	Start-Process -FilePath "gpupdate.exe" -ArgumentList "/force" -NoNewWindow -Wait
+}
+#endregion
+
+#region _______________#b 开启窗口边框和标题栏颜色
+if ($b)
+{
+	Set-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\DWM" -Name "ColorPrevalence" -Value 1 -Force
+}
+#endregion
+
+#region _______________#c 开启远程桌面
+if ($c)
+{
+	# 启用远程桌面
+	try
+	{
+		Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0 -ErrorAction Stop
+		Write-Output "远程桌面已启用。"
+	}
+	catch
+	{
+		Write-Output "启用远程桌面时发生错误：$_"
+		exit
+	}
+	
+	# 启用远程桌面防火墙规则
+	try
+	{
+		#Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction Stop
+		Enable-NetFirewallRule -DisplayGroup "远程桌面" -ErrorAction Stop
+		Write-Output "远程桌面防火墙规则已启用。"
+	}
+	catch
+	{
+		Write-Output "启用远程桌面防火墙规则时发生错误：$_"
+		exit
+	}
+	
+	# 禁用网络级别身份验证（NLA）
+	try
+	{
+		Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 0 -ErrorAction Stop
+		Write-Output "网络级别身份验证（NLA）已禁用。"
+	}
+	catch
+	{
+		Write-Output "禁用网络级别身份验证（NLA）时发生错误：$_"
+		exit
+	}
+	
+	# 使用空白密码的本地帐户只允许进行控制台登录
+	try
+	{
+		New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "limitblankpassworduse" -Value 0 -PropertyType DWord -Force -ErrorAction Stop
+		Write-Output "网络级别身份验证（NLA）已禁用。"
+	}
+	catch
+	{
+		Write-Output "使用空白密码的本地帐户只允许进行控制台登录时发生错误：$_"
+		exit
+	}
+	
+	# 验证远程桌面和NLA设置是否启用/禁用
+	$rdpEnabled = (Get-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections").fDenyTSConnections
+	$nlaEnabled = (Get-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "UserAuthentication").UserAuthentication
+	#$firewallRules = Get-NetFirewallRule -DisplayGroup "Remote Desktop"
+	$firewallRules = Get-NetFirewallRule -DisplayGroup "远程桌面"
+	$firewallEnabled = $firewallRules | Where-Object { $_.Enabled -eq "True" }
+	
+	if ($rdpEnabled -eq 0)
+	{
+		Write-Output "远程桌面已启用。"
+	}
+	else
+	{
+		Write-Output "远程桌面未启用。"
+	}
+	
+	if ($nlaEnabled -eq 0)
+	{
+		Write-Output "网络级别身份验证（NLA）已禁用。"
+	}
+	else
+	{
+		Write-Output "网络级别身份验证（NLA）未禁用。"
+	}
+	
+	if ($firewallEnabled)
+	{
+		Write-Output "远程桌面防火墙规则已启用。"
+	}
+	else
+	{
+		Write-Output "远程桌面防火墙规则未启用。"
+	}
+}
+#endregion
+
+#region _______________#d 禁止系统更新
+if ($d)
+{
+	$Wubz = "$env:SystemDrive\TOOLS\Wub\Wub.zip"
+	$Wub = getToolPath $Wubz -urlDown "http://www.jyhmedia.com/OneManager/bbwbxyz/001/TOOLS/Wub.zip" -fileMD5 "F354144D00898EB1EBEFC97DD93F00EC"
+	$Wub
+	
+	# start $Wub '/d', '/p'
+	& $Wub '/d' '/p'
+}
+#endregion
+
+#region _______________#z 
+if ($z)
+{
+	
+}
+#endregion
